@@ -1,0 +1,14 @@
+# Miljøvariabler — aldri commit disse
+.env
+
+# Python
+__pycache__/
+*.pyc
+backend/uploads/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# macOS
+.DS_Store

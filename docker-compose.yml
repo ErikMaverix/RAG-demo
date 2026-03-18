@@ -1,0 +1,33 @@
+services:
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    # Ikke eksponert utad — kun tilgjengelig internt for backend
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - QDRANT_HOST=qdrant        # overstyrer localhost i rag.py (se note under)
+      - QDRANT_PORT=6333
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      - qdrant
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  qdrant_data:
+  uploads_data:

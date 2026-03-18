@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: rag-demo-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false          # du fyller inn manuelt i Render-dashbordet
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: QDRANT_URL
+        sync: false          # lim inn URL fra Qdrant Cloud
+      - key: QDRANT_API_KEY
+        sync: false
