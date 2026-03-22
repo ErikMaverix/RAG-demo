@@ -1,105 +1,186 @@
-const BASE = '/api'
+const BASE = import.meta.env.VITE_API_BASE_URL
+
+if (!BASE) {
+  throw new Error('Mangler VITE_API_BASE_URL i miljøvariablene')
+}
+
+async function parseErrorResponse(response) {
+  try {
+    const data = await response.json()
+    return data?.detail || data?.message || response.statusText
+  } catch {
+    try {
+      return await response.text()
+    } catch {
+      return response.statusText
+    }
+  }
+}
+
+async function ensureOk(response) {
+  if (!response.ok) {
+    const message = await parseErrorResponse(response)
+    throw new Error(message || 'Ukjent feil')
+  }
+  return response
+}
 
 export async function fetchModels() {
-  const r = await fetch(`${BASE}/models`)
-  if (!r.ok) throw new Error(await r.text())
-  return r.json()
+  const response = await fetch(`${BASE}/models`)
+  await ensureOk(response)
+  return response.json()
 }
 
-export async function indexDocuments({ files, manualText, chunkSize, overlap }) {
+export async function indexDocuments({ files = [], manualText = '', chunkSize = 600, overlap = 100 }) {
   const form = new FormData()
-  for (const f of files) form.append('files', f)
-  form.append('manual_text', manualText || '')
-  form.append('chunk_size', chunkSize)
-  form.append('overlap', overlap)
 
-  const r = await fetch(`${BASE}/index`, { method: 'POST', body: form })
-  if (!r.ok) {
-    const err = await r.json().catch(() => ({ detail: r.statusText }))
-    throw new Error(err.detail || r.statusText)
+  for (const file of files) {
+    form.append('files', file)
   }
-  return r.json()
+
+  form.append('manual_text', manualText || '')
+  form.append('chunk_size', String(chunkSize))
+  form.append('overlap', String(overlap))
+
+  const response = await fetch(`${BASE}/index`, {
+    method: 'POST',
+    body: form,
+  })
+
+  await ensureOk(response)
+  return response.json()
 }
 
-export async function searchDocuments({ query, k, minScore, scoreThreshold }) {
-  const r = await fetch(`${BASE}/search`, {
+export async function searchDocuments({ query, k = 5, minScore = 0.15, scoreThreshold = 0.15 }) {
+  const response = await fetch(`${BASE}/search`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, k, min_score: minScore, score_threshold: scoreThreshold }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      query,
+      top_k: k,
+      min_score: minScore,
+      score_threshold: scoreThreshold,
+    }),
   })
-  if (!r.ok) {
-    const err = await r.json().catch(() => ({ detail: r.statusText }))
-    throw new Error(err.detail || r.statusText)
-  }
-  return r.json()
+
+  await ensureOk(response)
+  return response.json()
 }
 
 export async function ragAnswer({ query, points, model }) {
-  const r = await fetch(`${BASE}/rag`, {
+  const response = await fetch(`${BASE}/rag`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, points, model }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      query,
+      points,
+      model,
+    }),
   })
-  if (!r.ok) {
-    const err = await r.json().catch(() => ({ detail: r.statusText }))
-    throw new Error(err.detail || r.statusText)
-  }
-  return r.json()
+
+  await ensureOk(response)
+  return response.json()
 }
 
 export async function deleteCollection() {
-  const r = await fetch(`${BASE}/collection`, { method: 'DELETE' })
-  if (!r.ok) throw new Error(await r.text())
-  return r.json()
+  const response = await fetch(`${BASE}/collection`, {
+    method: 'DELETE',
+  })
+
+  await ensureOk(response)
+  return response.json()
 }
 
 export async function fetchDocuments() {
-  const r = await fetch(`${BASE}/documents`)
-  if (!r.ok) throw new Error(await r.text())
-  return r.json()
+  const response = await fetch(`${BASE}/documents`)
+  await ensureOk(response)
+  return response.json()
 }
 
 export async function deleteDocument(filename) {
-  const r = await fetch(`${BASE}/documents/${encodeURIComponent(filename)}`, { method: 'DELETE' })
-  if (!r.ok) throw new Error(await r.text())
-  return r.json()
+  const response = await fetch(`${BASE}/documents/${encodeURIComponent(filename)}`, {
+    method: 'DELETE',
+  })
+
+  await ensureOk(response)
+  return response.json()
 }
 
 export async function* ragAnswerStream({ query, points, model }) {
-  const r = await fetch(`${BASE}/rag/stream`, {
+  const response = await fetch(`${BASE}/rag/stream`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, points, model }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      query,
+      points,
+      model,
+    }),
   })
-  if (!r.ok) throw new Error(await r.text())
 
-  const reader = r.body.getReader()
+  await ensureOk(response)
+
+  if (!response.body) {
+    throw new Error('Streaming er ikke tilgjengelig i responsen')
+  }
+
+  const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
 
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
+
     buffer += decoder.decode(value, { stream: true })
     const lines = buffer.split('\n')
-    buffer = lines.pop()
+    buffer = lines.pop() || ''
+
     for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        yield JSON.parse(line.slice(6))
+      const trimmed = line.trim()
+      if (!trimmed.startsWith('data: ')) continue
+
+      const payload = trimmed.slice(6)
+
+      if (!payload) continue
+      if (payload === '[DONE]') return
+
+      try {
+        yield JSON.parse(payload)
+      } catch (error) {
+        console.warn('Kunne ikke parse SSE payload:', payload, error)
+      }
+    }
+  }
+
+  if (buffer.trim().startsWith('data: ')) {
+    const payload = buffer.trim().slice(6)
+    if (payload && payload !== '[DONE]') {
+      try {
+        yield JSON.parse(payload)
+      } catch (error) {
+        console.warn('Kunne ikke parse siste SSE payload:', payload, error)
       }
     }
   }
 }
 
 export async function summarizeDocument(filename, model) {
-  const r = await fetch(`${BASE}/summarize/${encodeURIComponent(filename)}`, {
+  const response = await fetch(`${BASE}/summarize/${encodeURIComponent(filename)}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+    }),
   })
-  if (!r.ok) {
-    const err = await r.json().catch(() => ({ detail: r.statusText }))
-    throw new Error(err.detail || r.statusText)
-  }
-  return r.json()
+
+  await ensureOk(response)
+  return response.json()
 }
