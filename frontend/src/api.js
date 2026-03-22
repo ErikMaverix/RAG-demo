@@ -4,6 +4,30 @@ if (!BASE) {
   throw new Error('Mangler VITE_API_BASE_URL i miljøvariablene')
 }
 
+// Token provider (settes fra App.jsx)
+let getToken = null
+
+export function setTokenGetter(fn) {
+  getToken = fn
+}
+
+async function getAuthHeaders(extraHeaders = {}) {
+  const headers = { ...extraHeaders }
+
+  if (getToken) {
+    try {
+      const token = await getToken()
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+    } catch (err) {
+      console.warn('Kunne ikke hente token:', err)
+    }
+  }
+
+  return headers
+}
+
 async function parseErrorResponse(response) {
   try {
     const data = await response.json()
@@ -26,7 +50,9 @@ async function ensureOk(response) {
 }
 
 export async function fetchModels() {
-  const response = await fetch(`${BASE}/models`)
+  const response = await fetch(`${BASE}/models`, {
+    headers: await getAuthHeaders(),
+  })
   await ensureOk(response)
   return response.json()
 }
@@ -44,6 +70,7 @@ export async function indexDocuments({ files = [], manualText = '', chunkSize = 
 
   const response = await fetch(`${BASE}/index`, {
     method: 'POST',
+    headers: await getAuthHeaders(),
     body: form,
   })
 
@@ -54,9 +81,9 @@ export async function indexDocuments({ files = [], manualText = '', chunkSize = 
 export async function searchDocuments({ query, k = 5, minScore = 0.15, scoreThreshold = 0.15 }) {
   const response = await fetch(`${BASE}/search`, {
     method: 'POST',
-    headers: {
+    headers: await getAuthHeaders({
       'Content-Type': 'application/json',
-    },
+    }),
     body: JSON.stringify({
       query,
       top_k: k,
@@ -72,9 +99,9 @@ export async function searchDocuments({ query, k = 5, minScore = 0.15, scoreThre
 export async function ragAnswer({ query, points, model }) {
   const response = await fetch(`${BASE}/rag`, {
     method: 'POST',
-    headers: {
+    headers: await getAuthHeaders({
       'Content-Type': 'application/json',
-    },
+    }),
     body: JSON.stringify({
       query,
       points,
@@ -89,6 +116,7 @@ export async function ragAnswer({ query, points, model }) {
 export async function deleteCollection() {
   const response = await fetch(`${BASE}/collection`, {
     method: 'DELETE',
+    headers: await getAuthHeaders(),
   })
 
   await ensureOk(response)
@@ -96,7 +124,9 @@ export async function deleteCollection() {
 }
 
 export async function fetchDocuments() {
-  const response = await fetch(`${BASE}/documents`)
+  const response = await fetch(`${BASE}/documents`, {
+    headers: await getAuthHeaders(),
+  })
   await ensureOk(response)
   return response.json()
 }
@@ -104,6 +134,7 @@ export async function fetchDocuments() {
 export async function deleteDocument(filename) {
   const response = await fetch(`${BASE}/documents/${encodeURIComponent(filename)}`, {
     method: 'DELETE',
+    headers: await getAuthHeaders(),
   })
 
   await ensureOk(response)
@@ -113,9 +144,9 @@ export async function deleteDocument(filename) {
 export async function* ragAnswerStream({ query, points, model }) {
   const response = await fetch(`${BASE}/rag/stream`, {
     method: 'POST',
-    headers: {
+    headers: await getAuthHeaders({
       'Content-Type': 'application/json',
-    },
+    }),
     body: JSON.stringify({
       query,
       points,
@@ -126,7 +157,7 @@ export async function* ragAnswerStream({ query, points, model }) {
   await ensureOk(response)
 
   if (!response.body) {
-    throw new Error('Streaming er ikke tilgjengelig i responsen')
+    throw new Error('Streaming er ikke tilgjengelig')
   }
 
   const reader = response.body.getReader()
@@ -147,24 +178,12 @@ export async function* ragAnswerStream({ query, points, model }) {
 
       const payload = trimmed.slice(6)
 
-      if (!payload) continue
-      if (payload === '[DONE]') return
+      if (!payload || payload === '[DONE]') continue
 
       try {
         yield JSON.parse(payload)
-      } catch (error) {
-        console.warn('Kunne ikke parse SSE payload:', payload, error)
-      }
-    }
-  }
-
-  if (buffer.trim().startsWith('data: ')) {
-    const payload = buffer.trim().slice(6)
-    if (payload && payload !== '[DONE]') {
-      try {
-        yield JSON.parse(payload)
-      } catch (error) {
-        console.warn('Kunne ikke parse siste SSE payload:', payload, error)
+      } catch (err) {
+        console.warn('Feil parsing av stream:', payload)
       }
     }
   }
@@ -173,12 +192,10 @@ export async function* ragAnswerStream({ query, points, model }) {
 export async function summarizeDocument(filename, model) {
   const response = await fetch(`${BASE}/summarize/${encodeURIComponent(filename)}`, {
     method: 'POST',
-    headers: {
+    headers: await getAuthHeaders({
       'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
     }),
+    body: JSON.stringify({ model }),
   })
 
   await ensureOk(response)

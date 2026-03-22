@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useAuth0 } from '@auth0/auth0-react'
 import {
   fetchModels,
   indexDocuments,
@@ -6,6 +7,7 @@ import {
   ragAnswerStream,
   deleteCollection,
   fetchDocuments,
+  setTokenGetter,
 } from './api'
 
 import ChunkCard from './components/ChunkCard'
@@ -15,12 +17,35 @@ import DocumentList from './components/DocumentList'
 import StepIndicator from './components/StepIndicator'
 
 export default function App() {
+  const {
+    loginWithRedirect,
+    logout,
+    user,
+    isAuthenticated,
+    isLoading,
+    getAccessTokenSilently,
+  } = useAuth0()
+
   // ---------- Models ----------
   const [models, setModels] = useState([])
   const [selectedModel, setSelectedModel] = useState('')
 
   useEffect(() => {
+    setTokenGetter(async () => {
+      if (!isAuthenticated) return null
+
+      return await getAccessTokenSilently({
+        authorizationParams: {
+          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+        },
+      })
+    })
+  }, [isAuthenticated, getAccessTokenSilently])
+
+  useEffect(() => {
     async function loadModels() {
+      if (!isAuthenticated) return
+
       try {
         const data = await fetchModels()
 
@@ -43,7 +68,7 @@ export default function App() {
     }
 
     loadModels()
-  }, [])
+  }, [isAuthenticated])
 
   // ---------- Index state ----------
   const [files, setFiles] = useState([])
@@ -68,7 +93,7 @@ export default function App() {
   const [history, setHistory] = useState([])
   const [ragLoading, setRagLoading] = useState(false)
   const [ragError, setRagError] = useState(null)
-  const [ragStep, setRagStep] = useState(null) // 'searching' | 'generating' | null
+  const [ragStep, setRagStep] = useState(null)
   const [streamingText, setStreamingText] = useState('')
 
   // ---------- Document list refresh trigger ----------
@@ -256,6 +281,38 @@ export default function App() {
     'Hvem er dokumentene rettet mot?',
   ]
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-700">
+        Laster inn autentisering…
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gray-50 text-gray-800 flex items-center justify-center px-4">
+        <div className="max-w-md w-full bg-white border border-gray-200 rounded-xl p-6 text-center space-y-4 shadow-sm">
+          <img
+            src="Symbol-White.png"
+            alt="Logo"
+            className="w-16 h-16 mx-auto bg-gray-900 rounded-lg p-2"
+          />
+          <h1 className="text-2xl font-bold">RAG Demo</h1>
+          <p className="text-sm text-gray-500">
+            Du må logge inn for å bruke løsningen.
+          </p>
+          <button
+            onClick={() => loginWithRedirect()}
+            className="w-full py-2 px-4 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 transition"
+          >
+            Logg inn
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800">
       <header className="bg-gray-900 text-white py-6 px-4 flex flex-col items-center gap-2">
@@ -264,6 +321,22 @@ export default function App() {
         <p className="text-sm text-gray-400 max-w-xl text-center">
           Last opp dokumenter, still spørsmål — AI svarer kun basert på dine egne kilder.
         </p>
+
+        <div className="flex items-center gap-3 mt-2">
+          <span className="text-xs text-gray-300">
+            {user?.name || user?.email}
+          </span>
+          <button
+            onClick={() =>
+              logout({
+                logoutParams: { returnTo: window.location.origin },
+              })
+            }
+            className="px-3 py-1.5 rounded-lg bg-white text-gray-900 text-xs font-medium hover:bg-gray-100 transition"
+          >
+            Logg ut
+          </button>
+        </div>
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-8 space-y-8">
