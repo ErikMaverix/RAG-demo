@@ -13,10 +13,15 @@ from urllib.parse import quote
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from auth import verify_jwt_token
-from rag import RAGEngine, MODELS, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP
+from rag import (
+    RAGEngine,
+    MODELS,
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_OVERLAP,
+)
 
 UPLOADS_DIR = Path(__file__).parent / "uploads"
 UPLOADS_DIR.mkdir(exist_ok=True)
@@ -41,13 +46,38 @@ def get_engine() -> RAGEngine:
     if _engine is None:
         openai_key = os.getenv("OPENAI_API_KEY", "")
         anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+
         if not openai_key:
             raise HTTPException(status_code=500, detail="OPENAI_API_KEY ikke satt.")
+
         _engine = RAGEngine(
             openai_api_key=openai_key,
             anthropic_api_key=anthropic_key or None,
         )
     return _engine
+
+
+def ensure_valid_model(model: str) -> None:
+    if model not in MODELS:
+        raise HTTPException(status_code=400, detail=f"Ugyldig modell: {model}")
+
+
+def attach_urls_to_points(points: list[dict]) -> list[dict]:
+    enriched = []
+
+    for p in points:
+        item = dict(p)
+        src = item.get("source", "")
+
+        if src and src != "Manuell tekst" and (UPLOADS_DIR / src).exists():
+            page = item.get("page")
+            item["url"] = f"/files/{quote(src)}" + (f"#page={page}" if page else "")
+        else:
+            item["url"] = None
+
+        enriched.append(item)
+
+    return enriched
 
 
 # ---------- Routes ----------
@@ -81,7 +111,10 @@ def get_file(filename: str, user=Depends(verify_jwt_token)):
 
 @app.get("/models")
 def list_models(user=Depends(verify_jwt_token)):
-    return [{"id": k, "label": v["label"], "provider": v["provider"]} for k, v in MODELS.items()]
+    return [
+        {"id": k, "label": v["label"], "provider": v["provider"]}
+        for k, v in MODELS.items()
+    ]
 
 
 @app.post("/index")
@@ -125,20 +158,30 @@ async def index_documents(
             chunk_size=chunk_size,
             overlap=overlap,
         ):
-            all_chunks.append({"source": "Manuell tekst", "text": c, "page": None})
+            all_chunks.append(
+                {
+                    "source": "Manuell tekst",
+                    "text": c,
+                    "page": None,
+                }
+            )
 
     if not all_chunks:
         raise HTTPException(status_code=400, detail="Ingen tekst å indeksere.")
 
-    n = engine.index_chunks(all_chunks)
-    return {"indexed": n}
+    n = engine.index_chunks(all_chunks, chunk_size=chunk_size, overlap=overlap)
+    return {
+        "indexed": n,
+        "chunk_size": chunk_size,
+        "overlap": overlap,
+    }
 
 
 class SearchRequest(BaseModel):
     query: str
-    k: int = 5
-    min_score: float = 0.15
-    score_threshold: float = 0.15
+    k: int = Field(default=8, ge=1, le=20)
+    min_score: float = Field(default=0.65, ge=0.0, le=1.0)
+    score_threshold: float = Field(default=0.65, ge=0.0, le=1.0)
 
 
 @app.post("/search")
@@ -147,19 +190,21 @@ def search(req: SearchRequest, user=Depends(verify_jwt_token)):
         raise HTTPException(status_code=400, detail="Spørsmål kan ikke være tomt.")
 
     engine = get_engine()
-    points = engine.search(req.query, limit=req.k, min_score=req.min_score)
+    points = engine.search(
+        req.query,
+        limit=req.k,
+        min_score=req.min_score,
+    )
+
     strong = [p for p in points if p["score"] >= req.score_threshold]
     weak_count = len(points) - len(strong)
+    strong = attach_urls_to_points(strong)
 
-    for p in strong:
-        src = p.get("source", "")
-        if src and src != "Manuell tekst" and (UPLOADS_DIR / src).exists():
-            page = p.get("page")
-            p["url"] = f"/files/{quote(src)}" + (f"#page={page}" if page else "")
-        else:
-            p["url"] = None
-
-    return {"points": strong, "filtered_count": weak_count}
+    return {
+        "points": strong,
+        "filtered_count": weak_count,
+        "returned_count": len(strong),
+    }
 
 
 class RagRequest(BaseModel):
@@ -170,23 +215,46 @@ class RagRequest(BaseModel):
 
 @app.post("/rag")
 def rag(req: RagRequest, user=Depends(verify_jwt_token)):
+    if not req.query.strip():
+        raise HTTPException(status_code=400, detail="Spørsmål kan ikke være tomt.")
     if not req.points:
         raise HTTPException(status_code=400, detail="Ingen punkter å basere svar på.")
 
+    ensure_valid_model(req.model)
     engine = get_engine()
+
     result = engine.rag_answer(req.query, req.points, req.model)
-    return result
+
+    # Legg ved alle innsendte punkter med URL slik at frontend kan vise kildene
+    source_map = {p["chunk_id"]: p for p in attach_urls_to_points(req.points)}
+    used_points = [source_map[cid] for cid in result.get("used_chunks", []) if cid in source_map]
+
+    return {
+        "answer": result.get("answer", ""),
+        "used_chunks": result.get("used_chunks", []),
+        "notes": result.get("notes", ""),
+        "sources": used_points,
+    }
 
 
 @app.post("/rag/stream")
 def rag_stream(req: RagRequest, user=Depends(verify_jwt_token)):
+    if not req.query.strip():
+        raise HTTPException(status_code=400, detail="Spørsmål kan ikke være tomt.")
     if not req.points:
         raise HTTPException(status_code=400, detail="Ingen punkter å basere svar på.")
 
+    ensure_valid_model(req.model)
     engine = get_engine()
+
+    source_map = {p["chunk_id"]: p for p in attach_urls_to_points(req.points)}
 
     def generate():
         for event in engine.stream_answer(req.query, req.points, req.model):
+            if event.get("type") == "done":
+                used_chunks = event.get("used_chunks", [])
+                event["sources"] = [source_map[cid] for cid in used_chunks if cid in source_map]
+
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
@@ -202,6 +270,8 @@ class SummarizeRequest(BaseModel):
 
 @app.post("/summarize/{filename}")
 def summarize(filename: str, req: SummarizeRequest, user=Depends(verify_jwt_token)):
+    ensure_valid_model(req.model)
+
     engine = get_engine()
     summary = engine.summarize_document(filename, req.model)
     return {"summary": summary}
