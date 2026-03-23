@@ -99,17 +99,32 @@ async def index_documents(
         data = await f.read()
         dest = UPLOADS_DIR / f.filename
         dest.write_bytes(data)
+
         try:
             segments = engine.extract_text_from_bytes(data, f.filename)
             for seg in segments:
-                chunks = engine.chunk_text(seg["text"], chunk_size=chunk_size, overlap=overlap)
+                chunks = engine.chunk_text(
+                    seg["text"],
+                    chunk_size=chunk_size,
+                    overlap=overlap,
+                )
                 for c in chunks:
-                    all_chunks.append({"source": f.filename, "text": c, "page": seg["page"]})
+                    all_chunks.append(
+                        {
+                            "source": f.filename,
+                            "text": c,
+                            "page": seg["page"],
+                        }
+                    )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
     if manual_text.strip():
-        for c in engine.chunk_text(manual_text, chunk_size=chunk_size, overlap=overlap):
+        for c in engine.chunk_text(
+            manual_text,
+            chunk_size=chunk_size,
+            overlap=overlap,
+        ):
             all_chunks.append({"source": "Manuell tekst", "text": c, "page": None})
 
     if not all_chunks:
@@ -130,6 +145,7 @@ class SearchRequest(BaseModel):
 def search(req: SearchRequest, user=Depends(verify_jwt_token)):
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="Spørsmål kan ikke være tomt.")
+
     engine = get_engine()
     points = engine.search(req.query, limit=req.k, min_score=req.min_score)
     strong = [p for p in points if p["score"] >= req.score_threshold]
@@ -156,6 +172,7 @@ class RagRequest(BaseModel):
 def rag(req: RagRequest, user=Depends(verify_jwt_token)):
     if not req.points:
         raise HTTPException(status_code=400, detail="Ingen punkter å basere svar på.")
+
     engine = get_engine()
     result = engine.rag_answer(req.query, req.points, req.model)
     return result
@@ -165,6 +182,7 @@ def rag(req: RagRequest, user=Depends(verify_jwt_token)):
 def rag_stream(req: RagRequest, user=Depends(verify_jwt_token)):
     if not req.points:
         raise HTTPException(status_code=400, detail="Ingen punkter å basere svar på.")
+
     engine = get_engine()
 
     def generate():
@@ -192,10 +210,19 @@ def summarize(filename: str, req: SummarizeRequest, user=Depends(verify_jwt_toke
 @app.delete("/collection")
 def delete_collection(user=Depends(verify_jwt_token)):
     engine = get_engine()
-    engine.delete_collection()
+
+    try:
+        engine.delete_collection()
+    except Exception as e:
+        print(f"[WARN] Klarte ikke tømme vector DB: {e}")
+
     for f in UPLOADS_DIR.iterdir():
         if f.is_file():
-            f.unlink()
+            try:
+                f.unlink()
+            except Exception as e:
+                print(f"[WARN] Klarte ikke slette fil {f.name}: {e}")
+
     return {"deleted": True}
 
 
@@ -208,8 +235,18 @@ def list_documents(user=Depends(verify_jwt_token)):
 @app.delete("/documents/{filename}")
 def delete_document(filename: str, user=Depends(verify_jwt_token)):
     engine = get_engine()
-    engine.delete_by_source(filename)
-    f = UPLOADS_DIR / filename
-    if f.exists():
-        f.unlink()
+
+    try:
+        engine.delete_by_source(filename)
+    except Exception as e:
+        print(f"[WARN] Klarte ikke slette fra vector DB: {e}")
+
+    try:
+        f = UPLOADS_DIR / filename
+        if f.exists():
+            f.unlink()
+    except Exception as e:
+        print(f"[WARN] Klarte ikke slette fil: {e}")
+        raise HTTPException(status_code=500, detail="Feil ved sletting av fil")
+
     return {"deleted": filename}
