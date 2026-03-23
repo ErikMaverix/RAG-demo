@@ -17,19 +17,52 @@ from openai import OpenAI
 
 # -------------------- Config --------------------
 import os as _os
-QDRANT_URL = _os.getenv('QDRANT_URL', 'http://localhost:6333')
-QDRANT_API_KEY = _os.getenv('QDRANT_API_KEY', None)
+
+QDRANT_URL = _os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_API_KEY = _os.getenv("QDRANT_API_KEY", None)
 COLLECTION = "documents"
 EMBED_MODEL = "text-embedding-3-small"
+
 DEFAULT_CHUNK_SIZE = 600
 DEFAULT_OVERLAP = 100
 
+# Retrieval / grounding
+MIN_SEARCH_SCORE = 0.65
+MAX_RAG_CHUNKS = 6
+
+GROUNDING_SYSTEM_PROMPT = """
+Du er en analytisk assistent som svarer KUN basert på oppgitte kilder.
+
+MÅL:
+- Gi et utfyllende, men presist svar
+- Forklar sammenhenger når de er støttet av kildene
+- Ikke legg til noe som ikke eksplisitt finnes i teksten
+
+REGLER:
+1. All informasjon må være direkte støttet av kildene.
+2. Ikke dikt opp detaljer som ressurser, roller, kapasitet, ansvar eller leveranser.
+3. Hvis noe ikke er spesifisert i kildene, skriv tydelig:
+   "Dette er ikke spesifisert i dokumentet."
+4. Du kan kombinere informasjon fra flere chunks, men kun hvis de faktisk støtter hverandre.
+5. Bruk kildehenvisninger som [C1], [C2] underveis når du omtaler konkrete forhold.
+6. Unngå generisk språk som "fleksibel", "skalerbar", "etter behov" med mindre dette faktisk står i teksten.
+7. Ikke presenter antakelser, tolkninger eller bransjelogikk som fakta.
+8. Hvis grunnlaget er svakt eller uklart, si det eksplisitt.
+
+SVARSTIL:
+- Norsk
+- Presis
+- Utfyllende, men stram
+- God flyt
+- Ingen fylltekst
+""".strip()
+
 MODELS = {
-    "claude-sonnet-4-6":         {"label": "Claude Sonnet 4.6 — anbefalt (Anthropic)", "provider": "anthropic"},
-    "claude-haiku-4-5-20251001": {"label": "Claude Haiku 4.5 — rask (Anthropic)",     "provider": "anthropic"},
-    "claude-opus-4-6":           {"label": "Claude Opus 4.6 — kraftigst (Anthropic)",  "provider": "anthropic"},
-    "gpt-4.1-mini":              {"label": "GPT-4.1 Mini — rask, billig (OpenAI)",     "provider": "openai"},
-    "gpt-4o":                    {"label": "GPT-4o — kraftig (OpenAI)",                "provider": "openai"},
+    "claude-sonnet-4-6": {"label": "Claude Sonnet 4.6 — anbefalt (Anthropic)", "provider": "anthropic"},
+    "claude-haiku-4-5-20251001": {"label": "Claude Haiku 4.5 — rask (Anthropic)", "provider": "anthropic"},
+    "claude-opus-4-6": {"label": "Claude Opus 4.6 — kraftigst (Anthropic)", "provider": "anthropic"},
+    "gpt-4.1-mini": {"label": "GPT-4.1 Mini — rask, billig (OpenAI)", "provider": "openai"},
+    "gpt-4o": {"label": "GPT-4o — kraftig (OpenAI)", "provider": "openai"},
 }
 
 
@@ -73,7 +106,12 @@ class RAGEngine:
 
     # ---------- Chunking ----------
 
-    def chunk_text(self, text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = DEFAULT_OVERLAP) -> List[str]:
+    def chunk_text(
+        self,
+        text: str,
+        chunk_size: int = DEFAULT_CHUNK_SIZE,
+        overlap: int = DEFAULT_OVERLAP,
+    ) -> List[str]:
         paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
         if not paragraphs:
             return []
@@ -98,6 +136,7 @@ class RAGEngine:
         for para in split_paras:
             if current_len + len(para) > chunk_size and current:
                 chunks.append("\n\n".join(current))
+
                 overlap_parts: List[str] = []
                 overlap_len = 0
                 for p in reversed(current):
@@ -106,8 +145,10 @@ class RAGEngine:
                         overlap_len += len(p)
                     else:
                         break
+
                 current = overlap_parts
                 current_len = sum(len(p) for p in current)
+
             current.append(para)
             current_len += len(para)
 
@@ -142,23 +183,34 @@ class RAGEngine:
             info = self.qdrant.get_collection(COLLECTION)
             if info.config.params.vectors.size != vector_size:
                 self.qdrant.delete_collection(COLLECTION)
+
         if not self.qdrant.collection_exists(COLLECTION):
             self.qdrant.create_collection(
                 collection_name=COLLECTION,
                 vectors_config=qm.VectorParams(size=vector_size, distance=qm.Distance.COSINE),
             )
 
-    def index_chunks(self, chunks: List[Dict], chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = DEFAULT_OVERLAP) -> int:
+    def index_chunks(
+        self,
+        chunks: List[Dict],
+        chunk_size: int = DEFAULT_CHUNK_SIZE,
+        overlap: int = DEFAULT_OVERLAP,
+    ) -> int:
         """chunks: [{"source": str, "text": str, "page": int|None}]"""
         docs = []
         for i, c in enumerate(chunks):
-            docs.append({
-                "id": str(uuid.uuid4()),
-                "chunk_id": f"C{i+1}",
-                "source": c["source"],
-                "page": c.get("page"),
-                "text": c["text"],
-            })
+            docs.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "chunk_id": f"C{i+1}",
+                    "source": c["source"],
+                    "page": c.get("page"),
+                    "text": c["text"],
+                }
+            )
+
+        if not docs:
+            return 0
 
         embedding_inputs = [self.make_embedding_text(d) for d in docs]
         vectors = self.embed(embedding_inputs)
@@ -180,10 +232,11 @@ class RAGEngine:
 
         batch_size = 100
         for i in range(0, len(points), batch_size):
-            self.qdrant.upsert(collection_name=COLLECTION, points=points[i:i + batch_size])
+            self.qdrant.upsert(collection_name=COLLECTION, points=points[i : i + batch_size])
+
         return len(docs)
 
-    def search(self, query: str, limit: int = 5, min_score: float = 0.15) -> List[dict]:
+    def search(self, query: str, limit: int = 8, min_score: float = MIN_SEARCH_SCORE) -> List[dict]:
         if not self.qdrant.collection_exists(COLLECTION):
             raise RuntimeError("Collection finnes ikke. Indekser dokumenter først.")
 
@@ -196,16 +249,20 @@ class RAGEngine:
         )
 
         points = [p for p in res.points if p.score is not None and p.score >= min_score]
-        return [
+
+        results = [
             {
                 "chunk_id": p.payload.get("chunk_id", ""),
                 "source": p.payload.get("source", "ukjent"),
                 "page": p.payload.get("page"),
                 "text": p.payload.get("text", ""),
-                "score": round(p.score, 4),
+                "score": round(float(p.score), 4),
             }
             for p in points
         ]
+
+        results.sort(key=lambda x: x["score"], reverse=True)
+        return results
 
     def delete_collection(self) -> None:
         if self.qdrant.collection_exists(COLLECTION):
@@ -214,6 +271,7 @@ class RAGEngine:
     def delete_by_source(self, source: str) -> None:
         if not self.qdrant.collection_exists(COLLECTION):
             return
+
         self.qdrant.delete(
             collection_name=COLLECTION,
             points_selector=qm.FilterSelector(
@@ -226,6 +284,7 @@ class RAGEngine:
     def get_source_chunks(self, source: str, limit: int = 20) -> List[dict]:
         if not self.qdrant.collection_exists(COLLECTION):
             return []
+
         results, _ = self.qdrant.scroll(
             collection_name=COLLECTION,
             scroll_filter=qm.Filter(
@@ -235,8 +294,13 @@ class RAGEngine:
             with_payload=True,
             with_vectors=False,
         )
+
         return [
-            {"chunk_id": p.payload.get("chunk_id", ""), "text": p.payload.get("text", ""), "page": p.payload.get("page")}
+            {
+                "chunk_id": p.payload.get("chunk_id", ""),
+                "text": p.payload.get("text", ""),
+                "page": p.payload.get("page"),
+            }
             for p in results
         ]
 
@@ -244,44 +308,96 @@ class RAGEngine:
         chunks = self.get_source_chunks(source)
         if not chunks:
             raise RuntimeError(f"Ingen innhold funnet for: {source}")
+
         text = "\n\n".join(c["text"] for c in chunks[:15])
-        prompt = f"Les følgende tekst fra dokumentet «{source}» og lag et kort, presist sammendrag på 3–5 setninger på norsk.\n\nTekst:\n{text}\n\nSammendrag:"
+        prompt = (
+            f"Les følgende tekst fra dokumentet «{source}» og lag et kort, presist sammendrag "
+            f"på 3–5 setninger på norsk.\n\nTekst:\n{text}\n\nSammendrag:"
+        )
+
         provider = MODELS[model]["provider"]
         if provider == "anthropic":
             if not self.anthropic_client:
                 raise RuntimeError("Anthropic API-nøkkel mangler.")
             resp = self.anthropic_client.messages.create(
-                model=model, max_tokens=512,
-                messages=[{"role": "user", "content": prompt}], temperature=0.3,
+                model=model,
+                max_tokens=512,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
             )
             return resp.content[0].text.strip()
-        else:
-            resp = self.openai_client.chat.completions.create(
-                model=model, messages=[{"role": "user", "content": prompt}], temperature=0.3,
-            )
-            return resp.choices[0].message.content.strip()
+
+        resp = self.openai_client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+        )
+        return resp.choices[0].message.content.strip()
+
+    # ---------- RAG helpers ----------
+
+    def _filter_points_for_rag(
+        self,
+        points: List[dict],
+        min_score: float = MIN_SEARCH_SCORE,
+        max_chunks: int = MAX_RAG_CHUNKS,
+    ) -> List[dict]:
+        filtered = [p for p in points if p.get("score") is not None and p["score"] >= min_score]
+        filtered.sort(key=lambda x: x["score"], reverse=True)
+        return filtered[:max_chunks]
+
+    def _build_rag_context(self, points: List[dict]) -> str:
+        parts = []
+        for p in points:
+            meta = [f"Kilde: {p['source']}"]
+            if p.get("page") is not None:
+                meta.append(f"Side: {p['page']}")
+            if p.get("score") is not None:
+                meta.append(f"Score: {p['score']}")
+            meta_str = ", ".join(meta)
+            parts.append(f"[{p['chunk_id']}] ({meta_str})\n{p['text']}")
+        return "\n\n".join(parts)
 
     # ---------- RAG ----------
 
     def rag_answer(self, query: str, points: List[dict], model: str) -> dict:
-        sources = [{"chunk_id": p["chunk_id"], "source": p["source"], "text": p["text"]} for p in points]
-        valid_ids = [s["chunk_id"] for s in sources]
-        context = "\n\n".join(f"[{s['chunk_id']}] (Kilde: {s['source']}) {s['text']}" for s in sources)
+        grounded_points = self._filter_points_for_rag(points)
+
+        if not grounded_points:
+            return {
+                "answer": "Jeg finner ikke tilstrekkelig relevant informasjon i kildene til å svare sikkert.",
+                "used_chunks": [],
+                "notes": "Ingen chunks over relevansterskelen.",
+            }
+
+        valid_ids = [p["chunk_id"] for p in grounded_points]
+        context = self._build_rag_context(grounded_points)
 
         prompt = f"""
-Svar på spørsmålet KUN basert på kildene under.
-Hvis kildene ikke er nok til å svare: si "Jeg finner ikke dette i kildene."
+Svar på spørsmålet basert KUN på kildene under.
+
+Du skal:
+- Gi et utfyllende og presist svar
+- Forklare sammenhenger der det er dokumentert
+- Ikke inkludere informasjon som ikke finnes i kildene
+
+Hvis noe etterspørres men ikke fremgår av teksten:
+Skriv: "Dette er ikke spesifisert i dokumentet."
 
 Returner REN JSON (ingen markdown) med nøyaktig disse feltene:
 {{
-  "answer": "2–6 setninger på norsk",
-  "used_chunks": ["C1","C3"],
+  "answer": "utfyllende, presist svar på norsk (4–8 setninger)",
+  "used_chunks": ["C1", "C2"],
   "notes": "valgfritt"
 }}
 
-Regler:
+KRAV:
 - Gyldige chunk_id-er er KUN: {valid_ids}
-- Du kan IKKE oppgi andre chunk_id-er enn de som er listet over.
+- Du kan IKKE bruke andre chunk_id-er enn disse
+- Ikke dikt opp ansvar, kapasitet, roller, omfang eller leveranser
+- Ikke bruk generelle ord som "fleksibel", "skalerbar", "etter behov" med mindre de faktisk står i kildene
+- Bruk [C1], [C2] i selve teksten når det er naturlig
+- Svar presist og med god flyt
 
 Spørsmål:
 {query}
@@ -298,42 +414,72 @@ Kilder:
             resp = self.anthropic_client.messages.create(
                 model=model,
                 max_tokens=1024,
-                system="Du returnerer kun gyldig JSON.",
+                system=GROUNDING_SYSTEM_PROMPT + "\n\nDu returnerer kun gyldig JSON.",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
+                temperature=0.1,
             )
             raw = resp.content[0].text.strip()
         else:
             resp = self.openai_client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": "Du returnerer kun gyldig JSON."},
+                    {"role": "system", "content": GROUNDING_SYSTEM_PROMPT + "\n\nDu returnerer kun gyldig JSON."},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.2,
+                temperature=0.1,
             )
             raw = resp.choices[0].message.content.strip()
 
         try:
-            return json.loads(raw)
+            data = json.loads(raw)
         except json.JSONDecodeError:
             start, end = raw.find("{"), raw.rfind("}")
             if start != -1 and end > start:
-                return json.loads(raw[start:end + 1])
-            raise
+                data = json.loads(raw[start : end + 1])
+            else:
+                raise
+
+        used_chunks = data.get("used_chunks", [])
+        used_chunks = [c for c in used_chunks if c in valid_ids]
+        data["used_chunks"] = used_chunks
+
+        if "answer" not in data or not isinstance(data["answer"], str):
+            data["answer"] = "Jeg finner ikke dette tydelig i kildene."
+
+        if "notes" not in data:
+            data["notes"] = ""
+
+        return data
 
     def stream_answer(self, query: str, points: List[dict], model: str):
         """Sync generator: yields {"type":"token","text":str}, then {"type":"done","answer":str,"used_chunks":[...]}"""
-        sources = [{"chunk_id": p["chunk_id"], "source": p["source"], "text": p["text"]} for p in points]
-        valid_ids = [s["chunk_id"] for s in sources]
-        context = "\n\n".join(f"[{s['chunk_id']}] (Kilde: {s['source']}) {s['text']}" for s in sources)
+        grounded_points = self._filter_points_for_rag(points)
 
-        prompt = f"""Svar på spørsmålet KUN basert på kildene under. Svar på norsk, 2–6 setninger.
-Bruk [C1], [C3] etc. for å referere til kildene underveis i teksten.
-Avslutt med en linje som starter med "Kilder:" og lister opp chunk_id-ene du brukte, f.eks: Kilder: C1, C3
-Hvis kildene ikke er nok: si "Jeg finner ikke dette i kildene."
+        if not grounded_points:
+            yield {
+                "type": "done",
+                "answer": "Jeg finner ikke tilstrekkelig relevant informasjon i kildene til å svare sikkert.",
+                "used_chunks": [],
+            }
+            return
 
-Spørsmål: {query}
+        valid_ids = [p["chunk_id"] for p in grounded_points]
+        context = self._build_rag_context(grounded_points)
+
+        prompt = f"""Svar på spørsmålet basert KUN på kildene under.
+
+REGLER:
+- Svar på norsk
+- Svar utfyllende og presist (4–8 setninger)
+- Forklar sammenhenger der det finnes dekning i kildene
+- Ikke legg til informasjon som ikke er eksplisitt nevnt
+- Hvis noe ikke er spesifisert: skriv "Dette er ikke spesifisert i dokumentet."
+- Bruk [C1], [C2] osv. underveis når du omtaler konkrete forhold
+- Avslutt med en egen linje:
+Kilder: C1, C2
+
+Spørsmål:
+{query}
 
 Kilder:
 {context}""".strip()
@@ -345,9 +491,11 @@ Kilder:
             if not self.anthropic_client:
                 raise RuntimeError("Anthropic API-nøkkel mangler.")
             with self.anthropic_client.messages.stream(
-                model=model, max_tokens=1024,
+                model=model,
+                max_tokens=1024,
+                system=GROUNDING_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
+                temperature=0.1,
             ) as stream:
                 for text in stream.text_stream:
                     full_text += text
@@ -355,21 +503,25 @@ Kilder:
         else:
             for chunk in self.openai_client.chat.completions.create(
                 model=model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2, stream=True,
+                messages=[
+                    {"role": "system", "content": GROUNDING_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.1,
+                stream=True,
             ):
                 text = chunk.choices[0].delta.content or ""
                 if text:
                     full_text += text
                     yield {"type": "token", "text": text}
 
-        # Parse answer and used_chunks from the streamed text
         used_chunks = []
-        answer = full_text
+        answer = full_text.strip()
+
         if "Kilder:" in full_text:
             parts = full_text.rsplit("Kilder:", 1)
             answer = parts[0].strip()
-            ids = re.findall(r'C\d+', parts[1])
+            ids = re.findall(r"C\d+", parts[1])
             used_chunks = [c for c in ids if c in valid_ids]
 
         yield {"type": "done", "answer": answer, "used_chunks": used_chunks}
