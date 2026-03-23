@@ -1,23 +1,5 @@
 import ScoreBar from './ScoreBar'
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
-
-function resolveUrl(url) {
-  if (!url) return null
-
-  // Hvis allerede full URL → bruk som den er
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    return url
-  }
-
-  // Hvis starter med / → legg til backend base URL
-  if (url.startsWith('/')) {
-    return `${API_BASE_URL}${url}`
-  }
-
-  // fallback
-  return `${API_BASE_URL}/${url}`
-}
+import { openSecureFile } from '../api'
 
 export default function ChunkCard({ point, highlight = false }) {
   if (!point) return null
@@ -26,8 +8,19 @@ export default function ChunkCard({ point, highlight = false }) {
   const source = point?.source ?? 'ukjent dokument'
   const page = point?.page ? ` · side ${point.page}` : ''
   const text = point?.text ?? ''
-  const url = resolveUrl(point?.url ?? null)
+  const url = point?.url ?? null
   const score = typeof point?.score === 'number' ? point.score : 0
+
+  async function handleOpenFile(e) {
+    e.preventDefault()
+
+    try {
+      await openSecureFile(url)
+    } catch (err) {
+      console.error('Kunne ikke åpne fil:', err)
+      alert('Kunne ikke åpne filen.')
+    }
+  }
 
   return (
     <div
@@ -37,7 +30,6 @@ export default function ChunkCard({ point, highlight = false }) {
           : 'border-gray-200 bg-white'
       }`}
     >
-      {/* Header */}
       <div className="flex items-center justify-between gap-2">
         <span className="font-mono font-bold text-sm text-gray-700 shrink-0">
           [{chunkId}]
@@ -46,8 +38,7 @@ export default function ChunkCard({ point, highlight = false }) {
         {url ? (
           <a
             href={url}
-            target="_blank"
-            rel="noopener noreferrer"
+            onClick={handleOpenFile}
             className="text-xs text-blue-600 hover:underline truncate"
           >
             {source}
@@ -61,10 +52,8 @@ export default function ChunkCard({ point, highlight = false }) {
         )}
       </div>
 
-      {/* Score */}
       <ScoreBar score={score} />
 
-      {/* Text */}
       <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap break-words">
         {text}
       </p>
