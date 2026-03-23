@@ -202,7 +202,7 @@ export async function summarizeDocument(filename, model) {
   return response.json()
 }
 
-export async function openSecureFile(url) {
+export async function openSecureFile(url, filename = '') {
   if (!url) return
 
   const [path, hash] = url.split('#')
@@ -215,9 +215,27 @@ export async function openSecureFile(url) {
 
   const blob = await response.blob()
   const blobUrl = URL.createObjectURL(blob)
-  const finalUrl = hash ? `${blobUrl}#${hash}` : blobUrl
 
-  window.open(finalUrl, '_blank', 'noopener,noreferrer')
+  const lowerName = filename.toLowerCase()
+  const isPdf = lowerName.endsWith('.pdf')
+
+  if (isPdf) {
+    const finalUrl = hash ? `${blobUrl}#${hash}` : blobUrl
+    window.open(finalUrl, '_blank', 'noopener,noreferrer')
+
+    setTimeout(() => {
+      URL.revokeObjectURL(blobUrl)
+    }, 60000)
+
+    return
+  }
+
+  const a = document.createElement('a')
+  a.href = blobUrl
+  a.download = filename || 'document'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
 
   setTimeout(() => {
     URL.revokeObjectURL(blobUrl)
