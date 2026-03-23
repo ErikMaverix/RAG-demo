@@ -350,9 +350,9 @@ export default function App() {
             <strong>Slik fungerer det i tre steg:</strong>
           </p>
           <ol className="list-decimal list-inside space-y-1 pl-1">
-            <li>Du laster opp dokumenter — de deles opp i tekstbiter og lagres i en vektordatabase</li>
-            <li>Du stiller et spørsmål — appen finner de mest relevante tekstbitene ved hjelp av semantisk søk</li>
-            <li>AI-modellen formulerer et svar <strong>kun</strong> basert på de funnede tekstbitene, med kildehenvisning</li>
+            <li>Du laster opp dokumenter — de deles opp i tekstbiter (Chunking) og lagres i en vektordatabase</li>
+            <li>Du stiller et spørsmål — appen finner de mest relevante tekstbitene (Chunks) ved hjelp av semantisk søk</li>
+            <li>AI-modellen formulerer et svar <strong>kun</strong> basert på de tekstbitene den finner, med kildehenvisning</li>
           </ol>
         </div>
 
