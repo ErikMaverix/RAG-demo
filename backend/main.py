@@ -10,12 +10,13 @@ from pathlib import Path
 from typing import List, Optional
 from urllib.parse import quote
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from auth import verify_jwt_token
 from rag import RAGEngine, MODELS, DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP
 
 UPLOADS_DIR = Path(__file__).parent / "uploads"
@@ -51,8 +52,17 @@ def get_engine() -> RAGEngine:
 
 # ---------- Routes ----------
 
+@app.get("/me")
+def me(user=Depends(verify_jwt_token)):
+    return {
+        "sub": user.get("sub"),
+        "email": user.get("email"),
+        "name": user.get("name"),
+    }
+
+
 @app.get("/models")
-def list_models():
+def list_models(user=Depends(verify_jwt_token)):
     return [{"id": k, "label": v["label"], "provider": v["provider"]} for k, v in MODELS.items()]
 
 
@@ -62,13 +72,13 @@ async def index_documents(
     manual_text: str = Form(default=""),
     chunk_size: int = Form(default=DEFAULT_CHUNK_SIZE),
     overlap: int = Form(default=DEFAULT_OVERLAP),
+    user=Depends(verify_jwt_token),
 ):
     engine = get_engine()
     all_chunks = []
 
     for f in files:
         data = await f.read()
-        # Save file to disk so it can be linked to later
         dest = UPLOADS_DIR / f.filename
         dest.write_bytes(data)
         try:
@@ -99,7 +109,7 @@ class SearchRequest(BaseModel):
 
 
 @app.post("/search")
-def search(req: SearchRequest):
+def search(req: SearchRequest, user=Depends(verify_jwt_token)):
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="Spørsmål kan ikke være tomt.")
     engine = get_engine()
@@ -107,7 +117,6 @@ def search(req: SearchRequest):
     strong = [p for p in points if p["score"] >= req.score_threshold]
     weak_count = len(points) - len(strong)
 
-    # Attach file URL if the source file exists in uploads/
     for p in strong:
         src = p.get("source", "")
         if src and src != "Manuell tekst" and (UPLOADS_DIR / src).exists():
@@ -126,7 +135,7 @@ class RagRequest(BaseModel):
 
 
 @app.post("/rag")
-def rag(req: RagRequest):
+def rag(req: RagRequest, user=Depends(verify_jwt_token)):
     if not req.points:
         raise HTTPException(status_code=400, detail="Ingen punkter å basere svar på.")
     engine = get_engine()
@@ -135,7 +144,7 @@ def rag(req: RagRequest):
 
 
 @app.post("/rag/stream")
-def rag_stream(req: RagRequest):
+def rag_stream(req: RagRequest, user=Depends(verify_jwt_token)):
     if not req.points:
         raise HTTPException(status_code=400, detail="Ingen punkter å basere svar på.")
     engine = get_engine()
@@ -156,14 +165,14 @@ class SummarizeRequest(BaseModel):
 
 
 @app.post("/summarize/{filename}")
-def summarize(filename: str, req: SummarizeRequest):
+def summarize(filename: str, req: SummarizeRequest, user=Depends(verify_jwt_token)):
     engine = get_engine()
     summary = engine.summarize_document(filename, req.model)
     return {"summary": summary}
 
 
 @app.delete("/collection")
-def delete_collection():
+def delete_collection(user=Depends(verify_jwt_token)):
     engine = get_engine()
     engine.delete_collection()
     for f in UPLOADS_DIR.iterdir():
@@ -173,13 +182,13 @@ def delete_collection():
 
 
 @app.get("/documents")
-def list_documents():
+def list_documents(user=Depends(verify_jwt_token)):
     files = sorted(f.name for f in UPLOADS_DIR.iterdir() if f.is_file())
     return {"files": files}
 
 
 @app.delete("/documents/{filename}")
-def delete_document(filename: str):
+def delete_document(filename: str, user=Depends(verify_jwt_token)):
     engine = get_engine()
     engine.delete_by_source(filename)
     f = UPLOADS_DIR / filename
