@@ -201,3 +201,25 @@ export async function summarizeDocument(filename, model) {
   await ensureOk(response)
   return response.json()
 }
+
+export async function openSecureFile(url) {
+  if (!url) return
+
+  const [path, hash] = url.split('#')
+
+  const response = await fetch(`${BASE}${path}`, {
+    headers: await getAuthHeaders(),
+  })
+
+  await ensureOk(response)
+
+  const blob = await response.blob()
+  const blobUrl = URL.createObjectURL(blob)
+  const finalUrl = hash ? `${blobUrl}#${hash}` : blobUrl
+
+  window.open(finalUrl, '_blank', 'noopener,noreferrer')
+
+  setTimeout(() => {
+    URL.revokeObjectURL(blobUrl)
+  }, 60000)
+}
