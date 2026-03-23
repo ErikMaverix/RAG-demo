@@ -180,8 +180,8 @@ async def index_documents(
 class SearchRequest(BaseModel):
     query: str
     k: int = Field(default=8, ge=1, le=20)
-    min_score: float = Field(default=0.65, ge=0.0, le=1.0)
-    score_threshold: float = Field(default=0.65, ge=0.0, le=1.0)
+    min_score: float = Field(default=0.40, ge=0.0, le=1.0)
+    score_threshold: float = Field(default=0.20, ge=0.0, le=1.0)
 
 
 @app.post("/search")
