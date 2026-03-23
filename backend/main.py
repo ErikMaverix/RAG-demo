@@ -12,8 +12,7 @@ from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from auth import verify_jwt_token
@@ -32,8 +31,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
-
 # ---------- Engine singleton (one per process) ----------
 
 _engine: Optional[RAGEngine] = None
@@ -46,7 +43,10 @@ def get_engine() -> RAGEngine:
         anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
         if not openai_key:
             raise HTTPException(status_code=500, detail="OPENAI_API_KEY ikke satt.")
-        _engine = RAGEngine(openai_api_key=openai_key, anthropic_api_key=anthropic_key or None)
+        _engine = RAGEngine(
+            openai_api_key=openai_key,
+            anthropic_api_key=anthropic_key or None,
+        )
     return _engine
 
 
@@ -59,6 +59,24 @@ def me(user=Depends(verify_jwt_token)):
         "email": user.get("email"),
         "name": user.get("name"),
     }
+
+
+@app.get("/files/{filename}")
+def get_file(filename: str, user=Depends(verify_jwt_token)):
+    file_path = UPLOADS_DIR / filename
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Fil ikke funnet.")
+
+    media_type = None
+    if file_path.suffix.lower() == ".pdf":
+        media_type = "application/pdf"
+
+    return FileResponse(
+        path=str(file_path),
+        media_type=media_type,
+        filename=filename,
+    )
 
 
 @app.get("/models")
@@ -121,7 +139,7 @@ def search(req: SearchRequest, user=Depends(verify_jwt_token)):
         src = p.get("source", "")
         if src and src != "Manuell tekst" and (UPLOADS_DIR / src).exists():
             page = p.get("page")
-            p["url"] = f"/uploads/{quote(src)}" + (f"#page={page}" if page else "")
+            p["url"] = f"/files/{quote(src)}" + (f"#page={page}" if page else "")
         else:
             p["url"] = None
 
