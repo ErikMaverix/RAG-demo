@@ -1,5 +1,24 @@
 import ScoreBar from './ScoreBar'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+
+function resolveUrl(url) {
+  if (!url) return null
+
+  // Hvis allerede full URL → bruk som den er
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url
+  }
+
+  // Hvis starter med / → legg til backend base URL
+  if (url.startsWith('/')) {
+    return `${API_BASE_URL}${url}`
+  }
+
+  // fallback
+  return `${API_BASE_URL}/${url}`
+}
+
 export default function ChunkCard({ point, highlight = false }) {
   if (!point) return null
 
@@ -7,7 +26,7 @@ export default function ChunkCard({ point, highlight = false }) {
   const source = point?.source ?? 'ukjent dokument'
   const page = point?.page ? ` · side ${point.page}` : ''
   const text = point?.text ?? ''
-  const url = point?.url ?? null
+  const url = resolveUrl(point?.url ?? null)
   const score = typeof point?.score === 'number' ? point.score : 0
 
   return (
