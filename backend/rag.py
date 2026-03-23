@@ -26,35 +26,31 @@ EMBED_MODEL = "text-embedding-3-small"
 DEFAULT_CHUNK_SIZE = 600
 DEFAULT_OVERLAP = 100
 
-# Retrieval / grounding
-MIN_SEARCH_SCORE = 0.65
+# Balanced retrieval
+MIN_SEARCH_SCORE = 0.40
 MAX_RAG_CHUNKS = 6
 
 GROUNDING_SYSTEM_PROMPT = """
-Du er en analytisk assistent som svarer KUN basert på oppgitte kilder.
+Du er en analytisk assistent som svarer basert på oppgitte kilder.
 
 MÅL:
-- Gi et utfyllende, men presist svar
-- Forklar sammenhenger når de er støttet av kildene
-- Ikke legg til noe som ikke eksplisitt finnes i teksten
+- Gi et presist og nyttig svar på norsk
+- Vær forklarende når kildene støtter det
+- Ikke legg til detaljer som ikke har dekning i teksten
 
 REGLER:
-1. All informasjon må være direkte støttet av kildene.
-2. Ikke dikt opp detaljer som ressurser, roller, kapasitet, ansvar eller leveranser.
-3. Hvis noe ikke er spesifisert i kildene, skriv tydelig:
-   "Dette er ikke spesifisert i dokumentet."
-4. Du kan kombinere informasjon fra flere chunks, men kun hvis de faktisk støtter hverandre.
-5. Bruk kildehenvisninger som [C1], [C2] underveis når du omtaler konkrete forhold.
-6. Unngå generisk språk som "fleksibel", "skalerbar", "etter behov" med mindre dette faktisk står i teksten.
-7. Ikke presenter antakelser, tolkninger eller bransjelogikk som fakta.
-8. Hvis grunnlaget er svakt eller uklart, si det eksplisitt.
+1. Svar primært basert på kildene.
+2. Hvis noe ikke er tydelig spesifisert i kildene, si det eksplisitt.
+3. Du kan kombinere informasjon fra flere chunks når de støtter hverandre.
+4. Ikke dikt opp konkrete detaljer som ikke finnes i teksten.
+5. Bruk kildehenvisninger som [C1], [C2] når det er naturlig.
+6. Unngå bastante påstander hvis grunnlaget er svakt.
 
 SVARSTIL:
 - Norsk
 - Presis
-- Utfyllende, men stram
+- Gjerne litt utfyllende
 - God flyt
-- Ingen fylltekst
 """.strip()
 
 MODELS = {
@@ -339,12 +335,18 @@ class RAGEngine:
     def _filter_points_for_rag(
         self,
         points: List[dict],
-        min_score: float = MIN_SEARCH_SCORE,
+        min_score: float = 0.35,
         max_chunks: int = MAX_RAG_CHUNKS,
     ) -> List[dict]:
         filtered = [p for p in points if p.get("score") is not None and p["score"] >= min_score]
         filtered.sort(key=lambda x: x["score"], reverse=True)
-        return filtered[:max_chunks]
+
+        if filtered:
+            return filtered[:max_chunks]
+
+        fallback = [p for p in points if p.get("score") is not None]
+        fallback.sort(key=lambda x: x["score"], reverse=True)
+        return fallback[: min(len(fallback), 3)]
 
     def _build_rag_context(self, points: List[dict]) -> str:
         parts = []
@@ -367,26 +369,23 @@ class RAGEngine:
             return {
                 "answer": "Jeg finner ikke tilstrekkelig relevant informasjon i kildene til å svare sikkert.",
                 "used_chunks": [],
-                "notes": "Ingen chunks over relevansterskelen.",
+                "notes": "Ingen relevante chunks tilgjengelig.",
             }
 
         valid_ids = [p["chunk_id"] for p in grounded_points]
         context = self._build_rag_context(grounded_points)
 
         prompt = f"""
-Svar på spørsmålet basert KUN på kildene under.
+Svar på spørsmålet basert på kildene under.
 
 Du skal:
-- Gi et utfyllende og presist svar
-- Forklare sammenhenger der det er dokumentert
-- Ikke inkludere informasjon som ikke finnes i kildene
-
-Hvis noe etterspørres men ikke fremgår av teksten:
-Skriv: "Dette er ikke spesifisert i dokumentet."
+- Gi et presist og nyttig svar på norsk
+- Gjerne være noe utfyllende hvis kildene støtter det
+- Si tydelig fra hvis noe ikke er spesifisert eller uklart
 
 Returner REN JSON (ingen markdown) med nøyaktig disse feltene:
 {{
-  "answer": "utfyllende, presist svar på norsk (4–8 setninger)",
+  "answer": "presist svar på norsk, gjerne 3–7 setninger",
   "used_chunks": ["C1", "C2"],
   "notes": "valgfritt"
 }}
@@ -394,10 +393,9 @@ Returner REN JSON (ingen markdown) med nøyaktig disse feltene:
 KRAV:
 - Gyldige chunk_id-er er KUN: {valid_ids}
 - Du kan IKKE bruke andre chunk_id-er enn disse
-- Ikke dikt opp ansvar, kapasitet, roller, omfang eller leveranser
-- Ikke bruk generelle ord som "fleksibel", "skalerbar", "etter behov" med mindre de faktisk står i kildene
-- Bruk [C1], [C2] i selve teksten når det er naturlig
-- Svar presist og med god flyt
+- Ikke dikt opp detaljer som ikke har dekning i teksten
+- Bruk [C1], [C2] i selve teksten når det passer naturlig
+- Hvis noe ikke fremgår tydelig, si det eksplisitt
 
 Spørsmål:
 {query}
@@ -416,7 +414,7 @@ Kilder:
                 max_tokens=1024,
                 system=GROUNDING_SYSTEM_PROMPT + "\n\nDu returnerer kun gyldig JSON.",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
+                temperature=0.2,
             )
             raw = resp.content[0].text.strip()
         else:
@@ -426,7 +424,7 @@ Kilder:
                     {"role": "system", "content": GROUNDING_SYSTEM_PROMPT + "\n\nDu returnerer kun gyldig JSON."},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.1,
+                temperature=0.2,
             )
             raw = resp.choices[0].message.content.strip()
 
@@ -466,15 +464,15 @@ Kilder:
         valid_ids = [p["chunk_id"] for p in grounded_points]
         context = self._build_rag_context(grounded_points)
 
-        prompt = f"""Svar på spørsmålet basert KUN på kildene under.
+        prompt = f"""Svar på spørsmålet basert på kildene under.
 
 REGLER:
 - Svar på norsk
-- Svar utfyllende og presist (4–8 setninger)
-- Forklar sammenhenger der det finnes dekning i kildene
-- Ikke legg til informasjon som ikke er eksplisitt nevnt
-- Hvis noe ikke er spesifisert: skriv "Dette er ikke spesifisert i dokumentet."
-- Bruk [C1], [C2] osv. underveis når du omtaler konkrete forhold
+- Svar presist, gjerne litt utfyllende
+- Bruk kildene aktivt
+- Ikke dikt opp detaljer som ikke har dekning i teksten
+- Hvis noe er uklart eller ikke spesifisert, si det tydelig
+- Bruk [C1], [C2] osv. underveis når det er naturlig
 - Avslutt med en egen linje:
 Kilder: C1, C2
 
@@ -495,7 +493,7 @@ Kilder:
                 max_tokens=1024,
                 system=GROUNDING_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
+                temperature=0.2,
             ) as stream:
                 for text in stream.text_stream:
                     full_text += text
@@ -507,7 +505,7 @@ Kilder:
                     {"role": "system", "content": GROUNDING_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.1,
+                temperature=0.2,
                 stream=True,
             ):
                 text = chunk.choices[0].delta.content or ""
