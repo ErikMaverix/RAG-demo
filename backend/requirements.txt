@@ -7,3 +7,5 @@ anthropic
 python-docx
 pypdf
 pydantic
+python-jose[cryptography]
+requests
