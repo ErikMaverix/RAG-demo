@@ -10,15 +10,16 @@ export default function ChunkCard({ point, highlight = false }) {
   const text = point?.text ?? ''
   const url = point?.url ?? null
   const score = typeof point?.score === 'number' ? point.score : 0
+  const isPdf = source.toLowerCase().endsWith('.pdf')
 
   async function handleOpenFile(e) {
     e.preventDefault()
 
     try {
-      await openSecureFile(url)
+      await openSecureFile(url, source)
     } catch (err) {
       console.error('Kunne ikke åpne fil:', err)
-      alert('Kunne ikke åpne filen.')
+      alert('Kunne ikke åpne eller laste ned filen.')
     }
   }
 
@@ -42,7 +43,7 @@ export default function ChunkCard({ point, highlight = false }) {
             className="text-xs text-blue-600 hover:underline truncate"
           >
             {source}
-            {page} ↗
+            {page} {isPdf ? '↗' : '⬇'}
           </a>
         ) : (
           <span className="text-xs text-gray-400 truncate">
