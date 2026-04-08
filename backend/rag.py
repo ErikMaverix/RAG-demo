@@ -45,11 +45,12 @@ REGLER:
 4. Ikke dikt opp konkrete detaljer som ikke finnes i teksten.
 5. Bruk kildehenvisninger som [C1], [C2] når det er naturlig.
 6. Unngå bastante påstander hvis grunnlaget er svakt.
+7. Hvis spørsmålet ikke kan besvares av kildene, svar kun: "Jeg finner ikke dette i kildene."
 
 SVARSTIL:
 - Norsk
 - Presis
-- Gjerne litt utfyllende
+- Gjerne litt utfyllende (3–7 setninger)
 - God flyt
 """.strip()
 
@@ -467,10 +468,10 @@ Kilder:
         prompt = f"""Svar på spørsmålet basert på kildene under.
 
 REGLER:
-- Svar på norsk
-- Svar presist, gjerne litt utfyllende
+- Svar på norsk, presist, gjerne 3–7 setninger
 - Bruk kildene aktivt
 - Ikke dikt opp detaljer som ikke har dekning i teksten
+- Hvis spørsmålet ikke kan besvares av kildene, svar kun: "Jeg finner ikke dette i kildene."
 - Hvis noe er uklart eller ikke spesifisert, si det tydelig
 - Bruk [C1], [C2] osv. underveis når det er naturlig
 - Avslutt med en egen linje:
