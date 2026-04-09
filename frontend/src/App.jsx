@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useAuth0 } from '@auth0/auth0-react'
+import { supabase } from './supabase'
 import {
   fetchModels,
   indexDocuments,
@@ -16,31 +16,97 @@ import HistoryItem from './components/HistoryItem'
 import DocumentList from './components/DocumentList'
 import StepIndicator from './components/StepIndicator'
 
+function LoginForm() {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  async function handleLogin(e) {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) setError(error.message)
+    setLoading(false)
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 text-gray-800 flex items-center justify-center px-4">
+      <div className="max-w-md w-full bg-white border border-gray-200 rounded-xl p-6 space-y-4 shadow-sm">
+        <div className="text-center space-y-2">
+          <img
+            src="Symbol-White.png"
+            alt="Logo"
+            className="w-16 h-16 mx-auto bg-gray-900 rounded-lg p-2"
+          />
+          <h1 className="text-2xl font-bold">RAG Demo</h1>
+          <p className="text-sm text-gray-500">Logg inn for å bruke løsningen.</p>
+        </div>
+
+        <form onSubmit={handleLogin} className="space-y-3">
+          <input
+            type="email"
+            placeholder="E-post"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+          <input
+            type="password"
+            placeholder="Passord"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+          {error && (
+            <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</p>
+          )}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-2 px-4 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 disabled:opacity-40 transition"
+          >
+            {loading ? 'Logger inn…' : 'Logg inn'}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
-  const {
-    loginWithRedirect,
-    logout,
-    user,
-    isAuthenticated,
-    isLoading,
-    getAccessTokenSilently,
-  } = useAuth0()
+  const [session, setSession] = useState(undefined)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  const isLoading = session === undefined
+  const isAuthenticated = !!session
+  const user = session?.user
+
+  useEffect(() => {
+    setTokenGetter(async () => {
+      const { data } = await supabase.auth.getSession()
+      return data.session?.access_token ?? null
+    })
+  }, [isAuthenticated])
 
   // ---------- Models ----------
   const [models, setModels] = useState([])
   const [selectedModel, setSelectedModel] = useState('')
-
-  useEffect(() => {
-    setTokenGetter(async () => {
-      if (!isAuthenticated) return null
-
-      return await getAccessTokenSilently({
-        authorizationParams: {
-          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
-        },
-      })
-    })
-  }, [isAuthenticated, getAccessTokenSilently])
 
   useEffect(() => {
     async function loadModels() {
@@ -290,27 +356,7 @@ export default function App() {
   }
 
   if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-gray-50 text-gray-800 flex items-center justify-center px-4">
-        <div className="max-w-md w-full bg-white border border-gray-200 rounded-xl p-6 text-center space-y-4 shadow-sm">
-          <img
-            src="Symbol-White.png"
-            alt="Logo"
-            className="w-16 h-16 mx-auto bg-gray-900 rounded-lg p-2"
-          />
-          <h1 className="text-2xl font-bold">RAG Demo</h1>
-          <p className="text-sm text-gray-500">
-            Du må logge inn for å bruke løsningen.
-          </p>
-          <button
-            onClick={() => loginWithRedirect()}
-            className="w-full py-2 px-4 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 transition"
-          >
-            Logg inn
-          </button>
-        </div>
-      </div>
-    )
+    return <LoginForm />
   }
 
   return (
@@ -327,11 +373,7 @@ export default function App() {
             {user?.name || user?.email}
           </span>
           <button
-            onClick={() =>
-              logout({
-                logoutParams: { returnTo: window.location.origin },
-              })
-            }
+            onClick={() => supabase.auth.signOut()}
             className="px-3 py-1.5 rounded-lg bg-white text-gray-900 text-xs font-medium hover:bg-gray-100 transition"
           >
             Logg ut
