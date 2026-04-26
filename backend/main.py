@@ -46,6 +46,7 @@ def get_engine() -> RAGEngine:
     if _engine is None:
         openai_key = os.getenv("OPENAI_API_KEY", "")
         anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+        mistral_key = os.getenv("MISTRAL_API_KEY", "")
 
         if not openai_key:
             raise HTTPException(status_code=500, detail="OPENAI_API_KEY ikke satt.")
@@ -53,6 +54,7 @@ def get_engine() -> RAGEngine:
         _engine = RAGEngine(
             openai_api_key=openai_key,
             anthropic_api_key=anthropic_key or None,
+            mistral_api_key=mistral_key or None,
         )
     return _engine
 

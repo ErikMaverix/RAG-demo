@@ -4,7 +4,8 @@ python-multipart
 qdrant-client
 openai
 anthropic
+mistralai
 python-docx
 pypdf
 pydantic
-PyJWT
+PyJWT[cryptography]

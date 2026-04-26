@@ -14,6 +14,7 @@ from pypdf import PdfReader
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm
 from openai import OpenAI
+from mistralai import Mistral
 
 # -------------------- Config --------------------
 import os as _os
@@ -60,16 +61,22 @@ MODELS = {
     "claude-opus-4-6": {"label": "Claude Opus 4.6 — kraftigst (Anthropic)", "provider": "anthropic"},
     "gpt-4.1-mini": {"label": "GPT-4.1 Mini — rask, billig (OpenAI)", "provider": "openai"},
     "gpt-4o": {"label": "GPT-4o — kraftig (OpenAI)", "provider": "openai"},
+    "mistral-large-latest": {"label": "Mistral Large — kraftigst (Mistral)", "provider": "mistral"},
+    "mistral-small-latest": {"label": "Mistral Small — rask og billig (Mistral)", "provider": "mistral"},
+    "open-mistral-nemo": {"label": "Mistral Nemo — åpen kildekode (Mistral)", "provider": "mistral"},
 }
 
 
 class RAGEngine:
-    def __init__(self, openai_api_key: str, anthropic_api_key: Optional[str] = None):
+    def __init__(self, openai_api_key: str, anthropic_api_key: Optional[str] = None, mistral_api_key: Optional[str] = None):
         self.openai_client = OpenAI(api_key=openai_api_key)
         self.anthropic_client = None
         if anthropic_api_key:
             from anthropic import Anthropic
             self.anthropic_client = Anthropic(api_key=anthropic_api_key)
+        self.mistral_client = None
+        if mistral_api_key:
+            self.mistral_client = Mistral(api_key=mistral_api_key)
         self.qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 
     # ---------- Text extraction ----------
@@ -324,6 +331,16 @@ class RAGEngine:
             )
             return resp.content[0].text.strip()
 
+        if provider == "mistral":
+            if not self.mistral_client:
+                raise RuntimeError("Mistral API-nøkkel mangler.")
+            resp = self.mistral_client.chat.complete(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+            )
+            return resp.choices[0].message.content.strip()
+
         resp = self.openai_client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
@@ -418,6 +435,18 @@ Kilder:
                 temperature=0.2,
             )
             raw = resp.content[0].text.strip()
+        elif provider == "mistral":
+            if not self.mistral_client:
+                raise RuntimeError("Mistral API-nøkkel mangler.")
+            resp = self.mistral_client.chat.complete(
+                model=model,
+                messages=[
+                    {"role": "system", "content": GROUNDING_SYSTEM_PROMPT + "\n\nDu returnerer kun gyldig JSON."},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+            )
+            raw = resp.choices[0].message.content.strip()
         else:
             resp = self.openai_client.chat.completions.create(
                 model=model,
@@ -497,6 +526,20 @@ Kilder:
                 temperature=0.2,
             ) as stream:
                 for text in stream.text_stream:
+                    full_text += text
+                    yield {"type": "token", "text": text}
+        elif provider == "mistral":
+            if not self.mistral_client:
+                raise RuntimeError("Mistral API-nøkkel mangler.")
+            with self.mistral_client.chat.stream(
+                model=model,
+                messages=[
+                    {"role": "system", "content": GROUNDING_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+            ) as stream:
+                for text in stream.get_text_stream():
                     full_text += text
                     yield {"type": "token", "text": text}
         else:
