@@ -1,3 +1,33 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #181f25;
+    color: #ffffff;
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  input[type="range"] {
+    accent-color: #956fff;
+  }
+
+  select option {
+    background-color: #202a32;
+    color: #ffffff;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #181f25;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #28343e;
+    border-radius: 3px;
+  }
+}

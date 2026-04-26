@@ -14,7 +14,6 @@ export default function ChunkCard({ point, highlight = false }) {
 
   async function handleOpenFile(e) {
     e.preventDefault()
-
     try {
       await openSecureFile(url, source)
     } catch (err) {
@@ -25,14 +24,14 @@ export default function ChunkCard({ point, highlight = false }) {
 
   return (
     <div
-      className={`rounded-lg border p-4 space-y-2 ${
+      className={`rounded-xl border p-4 space-y-2 ${
         highlight
-          ? 'border-blue-400 bg-blue-50'
-          : 'border-gray-200 bg-white'
+          ? 'border-mvx-accent/40 bg-mvx-accent/5'
+          : 'border-mvx-border bg-mvx-surface'
       }`}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="font-mono font-bold text-sm text-gray-700 shrink-0">
+        <span className="font-mono font-bold text-sm text-mvx-accent shrink-0">
           [{chunkId}]
         </span>
 
@@ -40,22 +39,20 @@ export default function ChunkCard({ point, highlight = false }) {
           <a
             href={url}
             onClick={handleOpenFile}
-            className="text-xs text-blue-600 hover:underline truncate"
+            className="text-xs text-mvx-accent hover:underline truncate"
           >
-            {source}
-            {page} {isPdf ? '↗' : '⬇'}
+            {source}{page} {isPdf ? '↗' : '⬇'}
           </a>
         ) : (
-          <span className="text-xs text-gray-400 truncate">
-            {source}
-            {page}
+          <span className="text-xs text-mvx-muted truncate">
+            {source}{page}
           </span>
         )}
       </div>
 
       <ScoreBar score={score} />
 
-      <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap break-words">
+      <p className="text-sm text-white/80 leading-relaxed whitespace-pre-wrap break-words">
         {text}
       </p>
     </div>

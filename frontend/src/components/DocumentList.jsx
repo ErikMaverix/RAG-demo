@@ -11,31 +11,22 @@ export default function DocumentList({ refreshTrigger, model }) {
     async function loadDocuments() {
       try {
         const res = await fetchDocuments()
-
-        const normalized = Array.isArray(res)
-          ? res
-          : res?.files || res?.documents || []
-
+        const normalized = Array.isArray(res) ? res : res?.files || res?.documents || []
         setFiles(normalized)
       } catch (err) {
         console.error('Kunne ikke hente dokumenter:', err)
         setFiles([])
       }
     }
-
     loadDocuments()
   }, [refreshTrigger])
 
   async function handleDelete(filename) {
     if (!confirm(`Slett «${filename}» fra databasen?`)) return
-
     setDeleting(filename)
-
     try {
       await deleteDocument(filename)
-
       setFiles((prev) => prev.filter((f) => f !== filename))
-
       setSummaries((prev) => {
         const next = { ...prev }
         delete next[filename]
@@ -57,22 +48,11 @@ export default function DocumentList({ refreshTrigger, model }) {
       })
       return
     }
-
     setSummarizing(filename)
-
     try {
       const res = await summarizeDocument(filename, model)
-
-      const summary =
-        res?.summary ||
-        res?.result ||
-        res?.text ||
-        'Ingen oppsummering returnert.'
-
-      setSummaries((prev) => ({
-        ...prev,
-        [filename]: summary,
-      }))
+      const summary = res?.summary || res?.result || res?.text || 'Ingen oppsummering returnert.'
+      setSummaries((prev) => ({ ...prev, [filename]: summary }))
     } catch (e) {
       alert(`Feil ved sammendrag: ${e.message}`)
     } finally {
@@ -82,7 +62,7 @@ export default function DocumentList({ refreshTrigger, model }) {
 
   if (files.length === 0) {
     return (
-      <p className="text-xs text-gray-400 italic">
+      <p className="text-xs text-mvx-muted italic">
         Ingen dokumenter indeksert ennå.
       </p>
     )
@@ -91,35 +71,28 @@ export default function DocumentList({ refreshTrigger, model }) {
   return (
     <ul className="space-y-2">
       {files.map((f) => (
-        <li key={f} className="border border-gray-200 rounded-lg overflow-hidden">
-          <div className="flex items-center justify-between bg-gray-50 px-3 py-2">
-            <span className="text-sm text-gray-700 truncate">{f}</span>
-
-            <div className="flex gap-2 shrink-0 ml-3">
+        <li key={f} className="border border-mvx-border rounded-xl overflow-hidden">
+          <div className="flex items-center justify-between bg-mvx-surface px-3 py-2">
+            <span className="text-sm text-white truncate">{f}</span>
+            <div className="flex gap-3 shrink-0 ml-3">
               <button
                 onClick={() => handleSummarize(f)}
                 disabled={summarizing === f || !model}
-                className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-40 transition"
+                className="text-xs text-mvx-accent hover:text-mvx-accent-hover disabled:opacity-40 transition"
               >
-                {summarizing === f
-                  ? 'Laster…'
-                  : summaries[f]
-                  ? 'Skjul'
-                  : '📄 Sammendrag'}
+                {summarizing === f ? 'Laster…' : summaries[f] ? 'Skjul' : '📄 Sammendrag'}
               </button>
-
               <button
                 onClick={() => handleDelete(f)}
                 disabled={deleting === f}
-                className="text-xs text-red-500 hover:text-red-700 disabled:opacity-40 transition"
+                className="text-xs text-mvx-danger hover:opacity-70 disabled:opacity-40 transition"
               >
                 {deleting === f ? 'Sletter…' : '🗑 Slett'}
               </button>
             </div>
           </div>
-
           {summaries[f] && (
-            <div className="px-3 py-2 text-xs text-gray-600 leading-relaxed border-t border-gray-100 bg-white whitespace-pre-wrap">
+            <div className="px-3 py-2 text-xs text-white/70 leading-relaxed border-t border-mvx-border bg-mvx-bg whitespace-pre-wrap">
               {summaries[f]}
             </div>
           )}

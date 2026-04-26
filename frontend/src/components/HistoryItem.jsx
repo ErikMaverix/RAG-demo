@@ -23,7 +23,6 @@ export default function HistoryItem({ item, index }) {
 
   function handleDownload() {
     const lines = []
-
     lines.push('RAG-SVAR')
     lines.push('========')
     lines.push(`Spørsmål: ${query}`)
@@ -46,20 +45,13 @@ export default function HistoryItem({ item, index }) {
       const chunkId = p?.chunk_id || 'ukjent-id'
       const source = p?.source || 'ukjent dokument'
       const page = p?.page ? ` · side ${p.page}` : ''
-      const score =
-        typeof p?.score === 'number'
-          ? ` (relevans: ${Math.round(p.score * 100)}%)`
-          : ''
-
+      const score = typeof p?.score === 'number' ? ` (relevans: ${Math.round(p.score * 100)}%)` : ''
       lines.push(`[${chunkId}] ${source}${page}${score}`)
       lines.push(p?.text || '')
       lines.push('')
     })
 
-    const blob = new Blob([lines.join('\n')], {
-      type: 'text/plain;charset=utf-8',
-    })
-
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -71,18 +63,18 @@ export default function HistoryItem({ item, index }) {
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-      <div className="bg-gray-50 border-b border-gray-200 px-4 py-2 flex items-center justify-between gap-3">
-        <span className="text-sm font-medium text-gray-700">❓ {query}</span>
-        <span className="text-xs text-gray-400 shrink-0">{timestamp}</span>
+    <div className="bg-mvx-surface border border-mvx-border rounded-xl overflow-hidden">
+      <div className="bg-mvx-bg border-b border-mvx-border px-4 py-2 flex items-center justify-between gap-3">
+        <span className="text-sm font-medium text-white">❓ {query}</span>
+        <span className="text-xs text-mvx-muted shrink-0">{timestamp}</span>
       </div>
 
-      <div className="px-4 py-3 text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
+      <div className="px-4 py-3 text-sm text-white/90 leading-relaxed whitespace-pre-wrap">
         {answer}
       </div>
 
       {item?.notes && (
-        <div className="mx-4 mb-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg px-3 py-2 text-sm">
+        <div className="mx-4 mb-2 bg-mvx-accent/10 border border-mvx-accent/20 text-mvx-accent rounded-xl px-3 py-2 text-sm">
           {item.notes}
         </div>
       )}
@@ -90,14 +82,14 @@ export default function HistoryItem({ item, index }) {
       <div className="px-4 pb-3 flex gap-2 flex-wrap">
         <button
           onClick={handleCopy}
-          className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-100 transition"
+          className="text-xs px-3 py-1.5 rounded-lg border border-mvx-border text-white/70 hover:border-mvx-accent hover:text-white transition"
         >
           {copied ? '✓ Kopiert' : '📋 Kopier svar'}
         </button>
 
         <button
           onClick={handleDownload}
-          className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-100 transition"
+          className="text-xs px-3 py-1.5 rounded-lg border border-mvx-border text-white/70 hover:border-mvx-accent hover:text-white transition"
         >
           ⬇ Last ned
         </button>
@@ -105,7 +97,7 @@ export default function HistoryItem({ item, index }) {
         {usedPoints.length > 0 && (
           <button
             onClick={() => setShowSources((s) => !s)}
-            className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-100 transition"
+            className="text-xs px-3 py-1.5 rounded-lg border border-mvx-border text-white/70 hover:border-mvx-accent hover:text-white transition"
           >
             {showSources ? 'Skjul kilder' : `📄 Vis ${usedPoints.length} kilder`}
           </button>
@@ -113,11 +105,10 @@ export default function HistoryItem({ item, index }) {
       </div>
 
       {showSources && usedPoints.length > 0 && (
-        <div className="px-4 pb-4 space-y-2 border-t border-gray-100 pt-3">
-          <p className="text-xs text-gray-400">
+        <div className="px-4 pb-4 space-y-2 border-t border-mvx-border pt-3">
+          <p className="text-xs text-mvx-muted">
             Her ser du nøyaktig hvilke deler av dokumentene AI-en baserte svaret sitt på.
           </p>
-
           {usedPoints.map((p) => (
             <ChunkCard key={p.chunk_id || Math.random()} point={p} highlight />
           ))}
