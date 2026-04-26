@@ -84,7 +84,7 @@ class RAGEngine:
         """Returns list of {"text": str, "page": int | None}."""
         name = filename.lower()
 
-        if name.endswith(".txt"):
+        if name.endswith(".txt") or name.endswith(".md"):
             try:
                 text = data.decode("utf-8")
             except UnicodeDecodeError:
@@ -105,7 +105,7 @@ class RAGEngine:
                     pages.append({"text": t, "page": i + 1})
             return pages
 
-        raise ValueError(f"Ukjent filtype: {filename}. Bruk .txt, .docx eller .pdf")
+        raise ValueError(f"Ukjent filtype: {filename}. Bruk .txt, .md, .docx eller .pdf")
 
     # ---------- Chunking ----------
 

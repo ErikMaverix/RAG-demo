@@ -420,13 +420,13 @@ export default function App() {
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Steg 1 — Last inn dokumenter</h2>
           <p className="text-sm text-gray-500">
-            Last opp dokumentene du ønsker at AI-en skal søke i. Støttede formater: <strong>PDF, Word (.docx) og tekstfiler (.txt)</strong>. Du kan laste opp flere filer samtidig. Dokumentene lagres i databasen til du sletter dem manuelt.
+            Last opp dokumentene du ønsker at AI-en skal søke i. Støttede formater: <strong>PDF, Word (.docx), tekstfiler (.txt) og Markdown (.md)</strong>. Du kan laste opp flere filer samtidig. Dokumentene lagres i databasen til du sletter dem manuelt.
           </p>
 
           <input
             type="file"
             multiple
-            accept=".pdf,.docx,.txt"
+            accept=".pdf,.docx,.txt,.md"
             onChange={(e) => setFiles(Array.from(e.target.files || []))}
             className="block w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-gray-900 file:text-white file:cursor-pointer hover:file:bg-gray-700"
           />
