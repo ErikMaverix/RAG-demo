@@ -14,7 +14,6 @@ from pypdf import PdfReader
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm
 from openai import OpenAI
-from mistralai import Mistral
 
 # -------------------- Config --------------------
 import os as _os
@@ -76,7 +75,7 @@ class RAGEngine:
             self.anthropic_client = Anthropic(api_key=anthropic_api_key)
         self.mistral_client = None
         if mistral_api_key:
-            self.mistral_client = Mistral(api_key=mistral_api_key)
+            self.mistral_client = OpenAI(api_key=mistral_api_key, base_url="https://api.mistral.ai/v1")
         self.qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 
     # ---------- Text extraction ----------
@@ -334,7 +333,7 @@ class RAGEngine:
         if provider == "mistral":
             if not self.mistral_client:
                 raise RuntimeError("Mistral API-nøkkel mangler.")
-            resp = self.mistral_client.chat.complete(
+            resp = self.mistral_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
@@ -438,7 +437,7 @@ Kilder:
         elif provider == "mistral":
             if not self.mistral_client:
                 raise RuntimeError("Mistral API-nøkkel mangler.")
-            resp = self.mistral_client.chat.complete(
+            resp = self.mistral_client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": GROUNDING_SYSTEM_PROMPT + "\n\nDu returnerer kun gyldig JSON."},
@@ -531,15 +530,17 @@ Kilder:
         elif provider == "mistral":
             if not self.mistral_client:
                 raise RuntimeError("Mistral API-nøkkel mangler.")
-            with self.mistral_client.chat.stream(
+            for chunk in self.mistral_client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": GROUNDING_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.2,
-            ) as stream:
-                for text in stream.get_text_stream():
+                stream=True,
+            ):
+                text = chunk.choices[0].delta.content or ""
+                if text:
                     full_text += text
                     yield {"type": "token", "text": text}
         else:
