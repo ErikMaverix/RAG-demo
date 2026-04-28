@@ -8,7 +8,7 @@ export default {
           bg:           '#181f25',
           surface:      '#202a32',
           border:       '#28343e',
-          muted:        '#4a5f6d',
+          muted:        '#8B9CA9',
           accent:       '#956fff',
           'accent-hover': '#7c5ee0',
           signal:       '#74dc93',
