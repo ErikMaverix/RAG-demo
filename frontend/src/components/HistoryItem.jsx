@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import ChunkCard from './ChunkCard'
+import FeedbackButtons from './FeedbackButtons'
 
-export default function HistoryItem({ item, index }) {
+export default function HistoryItem({ item, index, conversationId }) {
   const [copied, setCopied] = useState(false)
   const [showSources, setShowSources] = useState(false)
 
@@ -102,6 +103,10 @@ export default function HistoryItem({ item, index }) {
             {showSources ? 'Skjul kilder' : `📄 Vis ${usedPoints.length} kilder`}
           </button>
         )}
+      </div>
+
+      <div className="px-4 pb-4 border-t border-mvx-border/50 pt-3">
+        <FeedbackButtons item={item} conversationId={conversationId} />
       </div>
 
       {showSources && usedPoints.length > 0 && (

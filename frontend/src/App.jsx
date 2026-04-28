@@ -138,6 +138,8 @@ export default function App() {
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState(null)
 
+  const [conversationId] = useState(() => crypto.randomUUID())
+
   const [history, setHistory] = useState([])
   const [ragLoading, setRagLoading] = useState(false)
   const [ragError, setRagError] = useState(null)
@@ -218,6 +220,10 @@ export default function App() {
     setSearchError(null)
     setStreamingText('')
 
+    const messageId = crypto.randomUUID()
+    let latencySearchMs = 0
+    let latencyGenerationMs = 0
+
     try {
       let points = searchPoints
       let usedQuery = searchQuery
@@ -225,7 +231,9 @@ export default function App() {
 
       if (!points.length || searchQuery !== query) {
         setRagStep('searching')
+        const t0 = Date.now()
         const res = await searchDocuments({ query, k, minScore, scoreThreshold })
+        latencySearchMs = Date.now() - t0
         points = res?.points || []
         usedQuery = query
         currentFilteredCount = res?.filtered_count || 0
@@ -241,23 +249,29 @@ export default function App() {
 
       setRagStep('generating')
       let accText = ''
+      const t1 = Date.now()
 
       for await (const event of ragAnswerStream({ query: usedQuery, points, model: selectedModel })) {
         if (event.type === 'token') {
           accText += event.text || ''
           setStreamingText(accText)
         } else if (event.type === 'done') {
+          latencyGenerationMs = Date.now() - t1
           const byId = Object.fromEntries(points.map((p) => [p.chunk_id, p]))
           const usedPoints = (event.used_chunks || []).map((id) => byId[id]).filter(Boolean)
           setHistory((prev) => [
             {
               id: Date.now(),
+              messageId,
               query: usedQuery,
               answer: event.answer || accText,
               notes: '',
               usedPoints,
               searchPoints: points,
               filteredCount: currentFilteredCount,
+              model: selectedModel,
+              latencySearchMs,
+              latencyGenerationMs,
               timestamp: new Date().toLocaleString('no-NO'),
             },
             ...prev,
@@ -572,7 +586,7 @@ export default function App() {
               </button>
             </div>
             {history.map((item, i) => (
-              <HistoryItem key={item.id} item={item} index={i} />
+              <HistoryItem key={item.id} item={item} index={i} conversationId={conversationId} />
             ))}
           </section>
         )}

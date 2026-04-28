@@ -202,6 +202,16 @@ export async function summarizeDocument(filename, model) {
   return response.json()
 }
 
+export async function submitFeedback(payload) {
+  const response = await fetch(`${BASE}/feedback`, {
+    method: 'POST',
+    headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(payload),
+  })
+  await ensureOk(response)
+  return response.json()
+}
+
 export async function openSecureFile(url, filename = '') {
   if (!url) return
 

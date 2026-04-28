@@ -9,3 +9,5 @@ pypdf
 pydantic
 PyJWT[cryptography]
 cryptography
+sqlalchemy
+psycopg2-binary

@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
 from urllib.parse import quote
@@ -14,8 +16,10 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from auth import verify_jwt_token
+from feedback import FeedbackEntry, get_db, init_db
 from rag import (
     RAGEngine,
     MODELS,
@@ -26,7 +30,28 @@ from rag import (
 UPLOADS_DIR = Path(__file__).parent / "uploads"
 UPLOADS_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="RAG Demo API")
+
+def _get_git_hash() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=Path(__file__).parent,
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        return "unknown"
+
+
+PROMPT_VERSION = _get_git_hash()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="RAG Demo API", lifespan=lifespan)
 
 # Allow all origins in dev — tighten in production
 app.add_middleware(
@@ -302,6 +327,51 @@ def delete_collection(user=Depends(verify_jwt_token)):
 def list_documents(user=Depends(verify_jwt_token)):
     files = sorted(f.name for f in UPLOADS_DIR.iterdir() if f.is_file())
     return {"files": files}
+
+
+class FeedbackRequest(BaseModel):
+    conversation_id: str
+    message_id: str
+    rating: int
+    category: Optional[str] = None
+    comment: Optional[str] = None
+    query: str
+    answer: str
+    model: str
+    search_results: Optional[list] = None
+    used_chunks: Optional[list] = None
+    latency_search_ms: Optional[int] = None
+    latency_generation_ms: Optional[int] = None
+
+
+@app.post("/feedback")
+def submit_feedback(
+    req: FeedbackRequest,
+    user=Depends(verify_jwt_token),
+    db: Session = Depends(get_db),
+):
+    if req.rating not in (1, -1):
+        raise HTTPException(status_code=400, detail="Rating må være 1 eller -1.")
+
+    entry = FeedbackEntry(
+        conversation_id=req.conversation_id,
+        message_id=req.message_id,
+        user_id=user.get("sub"),
+        rating=req.rating,
+        category=req.category,
+        comment=req.comment,
+        query=req.query,
+        answer=req.answer,
+        model=req.model,
+        prompt_version=PROMPT_VERSION,
+        search_results=req.search_results,
+        used_chunks=req.used_chunks,
+        latency_search_ms=req.latency_search_ms,
+        latency_generation_ms=req.latency_generation_ms,
+    )
+    db.add(entry)
+    db.commit()
+    return {"saved": True}
 
 
 @app.delete("/documents/{filename}")
